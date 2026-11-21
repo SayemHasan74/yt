@@ -1,0 +1,40 @@
+SHORTS STUDIO — YOUR LOCAL FORK
+
+Double-click Open Clipper.command. Keep its Terminal window open.
+The browser opens at http://localhost:8765 (or the next free port).
+Press Control+C in that Terminal window to stop the app.
+
+Start a new run with a video URL or a local video path. Codex and Smart
+picking remain selected. To avoid AI calls, choose No AI / Free mode.
+
+workspace/runs/ : your jobs, transcripts, picks and finished Shorts.
+logs/app.log : dashboard output; the app also shows each job's log.
+gta6-clipper/ : editable source code, fonts, sounds and tracking models.
+settings/clipper.env : app settings; keep keys private.
+data/whisper-base/ : installed CPU transcription model.
+tools/runtime/ : private Python and FFmpeg/FFprobe.
+
+Author update servers, feedback submission, issue links, branding,
+example watermark, affiliate links and promotions have been removed.
+There is no upstream updater. Changes and updates are now manual.
+The required original MIT copyright notice is retained in
+  gta6-clipper/LICENSE
+Third-party font/model notices are also retained.
+
+See gta6-clipper/MODIFYING.md for the source map and remaining connections.
+An offline backup of the app before these changes is in backups/.
+It does not run or contact anyone. Your media and existing jobs are intact.
+
+This build keeps the standard pipeline, not the proposed wake-Codex
+workflow. Codex still uses its existing ChatGPT sign-in, allowance and
+broad tool permissions when you run an AI job. App data living inside
+this folder does not itself restrict what an AI process can access.
+
+Whisper uses base on CPU int8; one render worker is set for this Mac.
+Optional translation language packs download on first selection.
+Optional publishing/YouTube analytics require your own account setup.
+No publishing, scheduling, video rendering or AI generation was started
+as part of the local-fork changes.
+
+Keep ready-made at its current location: its installed runtime uses
+absolute paths. Reopen the launcher after editing source files.

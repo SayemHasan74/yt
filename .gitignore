@@ -1,0 +1,43 @@
+# Publish the maintained app source, not this machine's media/runtime/data.
+/*
+!/.gitignore
+!/README.md
+!/ready-made/
+/ready-made/*
+!/ready-made/gta6-clipper/
+!/ready-made/Open Clipper.command
+!/ready-made/Check Render Progress.command
+!/ready-made/START HERE.txt
+!/ready-made/environment.sh
+!/ready-made/tools/
+/ready-made/tools/*
+!/ready-made/tools/*.py
+!/ready-made/tools/review/
+/ready-made/tools/review/*
+!/ready-made/tools/review/*.py
+!/ready-made/tools/review/*.cjs
+!/ready-made/tools/review/package.json
+!/ready-made/tools/review/package-lock.json
+!/ready-made/workspace/
+/ready-made/workspace/*
+!/ready-made/workspace/brand.json
+!/ready-made/settings/
+/ready-made/settings/*
+!/ready-made/settings/clipper.env.example
+
+# Generated dependencies, local credentials and temporary files.
+**/.DS_Store
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/node_modules/
+**/.env
+**/.env.local
+**/clipper.env
+**/cookies*.txt
+**/*.pem
+**/*.key
+**/*.log
+**/*.part
+**/*.tmp

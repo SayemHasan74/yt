@@ -1,0 +1,14 @@
+{
+  "layout": "stack",
+  "style": "classic",
+  "font": "Montserrat-ExtraBold",
+  "hook_text": "FFFFFF",
+  "hook_box": "572382",
+  "flip": false,
+  "music": "",
+  "watermark": "",
+  "gameplay_fit": "padded",
+  "gameplay_zoom": 0.85,
+  "facecam_native": true,
+  "purple_glass": true
+}

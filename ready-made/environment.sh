@@ -1,0 +1,21 @@
+# Sourced by Open Clipper.command; keep application data in ready-made.
+export PATH="$READY_MADE/gta6-clipper/.venv/bin:$READY_MADE/tools/runtime/bin:/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export HF_HOME="$READY_MADE/cache/huggingface"
+export XDG_CACHE_HOME="$READY_MADE/cache"
+export XDG_DATA_HOME="$READY_MADE/data"
+export PIP_CACHE_DIR="$READY_MADE/cache/pip"
+export MPLCONFIGDIR="$READY_MADE/cache/matplotlib"
+export DENO_DIR="$READY_MADE/cache/deno"
+export TMPDIR="$READY_MADE/tmp/"
+export CLIPPER_ENV_FILE="$READY_MADE/settings/clipper.env"
+export CLIPPER_TRANSLATION_DIR="$READY_MADE/data/argos-translate/packages"
+export ARGOS_PACKAGES_DIR="$CLIPPER_TRANSLATION_DIR"
+export ARGOS_DATA_DIR="$READY_MADE/data/argos-translate"
+export ARGOS_CACHE_DIR="$READY_MADE/cache/argos-translate"
+export CLIPPER_WORKERS=1
+export OMP_NUM_THREADS=4
+export PYTHONUNBUFFERED=1
+export PYTHONUTF8=1
+export SSL_CERT_FILE="$READY_MADE/tools/runtime/ssl/cert.pem"
+export CLIPPER_WHISPER_MODEL="$READY_MADE/data/whisper-base"
+export XDG_CONFIG_HOME="$READY_MADE/settings/xdg"
