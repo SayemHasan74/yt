@@ -749,6 +749,18 @@ def fit_facecam(image, width=OW, height=TOP_H, native=False, background_frame=No
     panel[y:y + rh, x:x + rw] = thumb
     return panel
 
+def gameplay_content_rect(source_width, source_height, height, fit_mode="cover", zoom=1.0):
+    """Even-pixel bounds of the real picture, excluding purple padding."""
+    scale = max(OW / source_width, height / source_height)
+    if fit_mode == "padded":
+        scale *= float(zoom)
+    left = max(0.0, (OW - source_width * scale) / 2)
+    top = max(0.0, (height - source_height * scale) / 2)
+    x, y = int(np.ceil(left / 2)) * 2, int(np.ceil(top / 2)) * 2
+    right = int(min(OW, left + source_width * scale) // 2) * 2
+    bottom = int(min(height, top + source_height * scale) // 2) * 2
+    return x, y, right - x, bottom - y
+
 def gameplay_view(frame, rect, height, fit_mode="cover", zoom=1.0, glass=False, t=0.0):
     """Actual source video fills the complete lower panel, without filler or distortion.
 
@@ -782,18 +794,24 @@ def render_stack(src, dst, cam, layout="stack", options=None):
     if fit_mode not in ("cover", "padded") or not .5 <= zoom <= 1.0:
         raise ValueError("gameplay_fit must be cover/padded; gameplay_zoom must be 0.5–1.0")
     cap = cv2.VideoCapture(str(src)); W = int(cap.get(3)); H = int(cap.get(4)); N = int(cap.get(7)); fps = cap.get(5)
+    # The stack is always fixed. If the webcam disappears, leave its purple
+    # panel empty rather than replacing the layout with a full-screen crop.
+    cam_visible = ([v is None for v in stack_runs(src, cam)] if layout == "stack" and cam else [False] * N)
     full = [None] * N if layout == "stack" else stack_runs(src, cam); cw = int(round(H * 9 / 16)) // 2 * 2
     if layout == "bubble" and not bubble_ok(cam, full, W, H): return None  # no real webcam box (couch shot, trailer face): caller frames it normally
     bh = OH - TOP_H; gy0, gy1 = int(H * 0.03), int(H * 0.96); bw = int((gy1 - gy0) * OW / (bh if layout == "bubble" else OH - LEGACY_TOP_H))  # game panel: panel aspect, minus thin top/bottom strips (social footers)
-    cx0, _, cx1, _ = cam
-    sharpen = OW / (cam[2] - cam[0]) >= 3
-    # place the game crop beside the cam so the cam isn't shown twice; centre if the cam is mid-frame
-    m = int(0.2 * (cx1 - cx0))  # cam overlays are wider than the face box: keep a margin so no slivers show
-    left = (cx0 + cx1) / 2 < W / 2
-    gx = min(cx1 + m, W - bw) if left else max(cx0 - m - bw, 0)
+    if cam:
+        cx0, _, cx1, _ = cam
+        sharpen = OW / (cam[2] - cam[0]) >= 3
+        # place the game crop beside the cam so the cam isn't shown twice; centre if the cam is mid-frame
+        m = int(0.2 * (cx1 - cx0))  # cam overlays are wider than the face box: keep a margin so no slivers show
+        left = (cx0 + cx1) / 2 < W / 2
+        gx = min(cx1 + m, W - bw) if left else max(cx0 - m - bw, 0)
+    else:
+        sharpen = False; left = False; gx = 0; bw = W
     # stream overlays inside the game panel (chat column, counters, cam frame, fine print): slide / shrink the window (<= 22 %) off them
-    rg = reaction(src); rg = rg[0] if rg and layout != "bubble" else None  # group reaction: the game window is the game panel, shown whole
-    if not rg: gx, gy0, bw, gh = fit(clutter(src, [k for k, v in enumerate(full) if v is None]), (gx, gy0, bw, gy1 - gy0), W, H, (gx, W) if left else (0, gx + bw), (0, H)); gy1 = gy0 + gh
+    rg = reaction(src) if cam else None; rg = rg[0] if rg and layout != "bubble" else None  # group reaction: the game window is the game panel, shown whole
+    if cam and not rg: gx, gy0, bw, gh = fit(clutter(src, [k for k, v in enumerate(full) if v is None]), (gx, gy0, bw, gy1 - gy0), W, H, (gx, W) if left else (0, gx + bw), (0, H)); gy1 = gy0 + gh
     wins, tries = {}, {}  # full-screen face runs: same trim per run (key = its x centre); tries = screen-in-screen checks left
     fb = clutter(src, [k for k, v in enumerate(full) if isinstance(v, float)])
     tmp = Path(dst).with_suffix(".noaudio.mp4")
@@ -801,6 +819,7 @@ def render_stack(src, dst, cam, layout="stack", options=None):
         "-i", "-", *encoder(), "-pix_fmt", "yuv420p", str(tmp)], stdin=subprocess.PIPE)
     try:
         out = np.zeros((OH, OW, 3), np.uint8); i = 0; G = stack_geom(FLIP); (cy, _), (gy, _), sm = G["cam"], G["game"], G["seam"]
+        reveal_from = -10_000
         if layout == "bubble":  # whole frame is game (a 9:16 slice of the game window), the cam a round bubble on top
             fw = int((gy1 - gy0) * OW / OH) // 2 * 2; fx = int(np.clip(gx + (bw - fw) // 2, 0, W - fw)); mask = bubble_mask()
             s = min(cx1 - cx0, cam[3] - cam[1]); sx, sy = (cx0 + cx1 - s) // 2, (cam[1] + cam[3] - s) // 2  # square around the cam centre
@@ -827,10 +846,18 @@ def render_stack(src, dst, cam, layout="stack", options=None):
                 out[y0:y0 + BUB, x0:x0 + BUB] = (b * mask + roi * (1 - mask)).astype(np.uint8)
                 frame = out
             else:
-                out[cy:cy + TOP_H] = fit_facecam(f[cam[1]:cam[3], cam[0]:cam[2]], native=native_cam, background_frame=f, t=i / fps, glass=glass)
+                empty = purple_glass(f, OW, TOP_H, i / fps) if glass else purple_gradient(OW, TOP_H)
+                visible = bool(cam and i < len(cam_visible) and cam_visible[i])
+                if visible:
+                    if i == 0 or not cam_visible[i - 1]: reveal_from = i
+                    panel = fit_facecam(f[cam[1]:cam[3], cam[0]:cam[2]], native=native_cam, background_frame=f, t=i / fps, glass=glass)
+                    alpha = min(1.0, (i - reveal_from + 1) / max(1, round(fps * .25)))
+                    out[cy:cy + TOP_H] = cv2.addWeighted(empty, 1.0 - alpha, panel, alpha, 0)
+                else:
+                    out[cy:cy + TOP_H] = empty
                 game_rect = (rg[0], rg[1], rg[2] - rg[0], rg[3] - rg[1]) if rg else (gx, gy0, bw, gy1 - gy0)
                 out[gy:gy + bh] = gameplay_view(f, game_rect, bh, fit_mode, zoom, glass=glass, t=i / fps)
-                out[sm - 3:sm + 3] = PURPLE_BGR
+                out[sm - 3:sm + 3] = purple_glass(f, OW, 6, i / fps) if glass else PURPLE_BGR
                 frame = out
             ff.stdin.write(cv2.cvtColor(hq(frame), cv2.COLOR_BGR2YUV_I420).tobytes()); i += 1
     except BaseException:
@@ -840,4 +867,5 @@ def render_stack(src, dst, cam, layout="stack", options=None):
     if ff.wait(): raise RuntimeError(f"ffmpeg could not write {Path(tmp).name} (disk full?)")
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(tmp), "-i", str(src), "-map", "0:v", "-map", "1:a?", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-shortest", str(dst)], check=True)
     tmp.unlink()
-    return dict(layout=layout, gameplay_fit=fit_mode if layout == "stack" else layout, gameplay_zoom=zoom, facecam_native=native_cam, purple_glass=glass, facecam_fit="contain" if layout == "stack" else layout, fixed_panels=layout == "stack", flip=FLIP and layout != "bubble", cam=cam, game_x=int(gx), full_cam_frames=sum(isinstance(x, float) for x in full), fill_frames=full.count("fill"))
+    px, py, pw, ph = gameplay_content_rect(W, H, bh, fit_mode, zoom)
+    return dict(layout=layout, gameplay_fit=fit_mode if layout == "stack" else layout, gameplay_zoom=zoom, facecam_native=native_cam, purple_glass=glass, facecam_fit="contain" if layout == "stack" else layout, fixed_panels=layout == "stack", flip=FLIP and layout != "bubble", cam=cam, game_x=int(gx), gameplay_content_rect=[px, G["game"][0] + py, pw, ph], visible_facecam_frames=sum(cam_visible), full_cam_frames=sum(isinstance(x, float) for x in full), fill_frames=full.count("fill"))

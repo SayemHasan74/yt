@@ -4,6 +4,11 @@ Double-click Open Clipper.command. Keep its Terminal window open.
 The browser opens at http://localhost:8765 (or the next free port).
 Press Control+C in that Terminal window to stop the app.
 
+VIDEO DOWNLOADER
+Double-click Download Video.command to use the separate terminal downloader.
+Paste one public or authorized YouTube, Instagram, or Facebook video link.
+It saves to Downloads by default, shows download progress, and never uses AI.
+
 Start a new run with a video URL or a local video path. Codex and Smart
 picking remain selected. To avoid AI calls, choose No AI / Free mode.
 

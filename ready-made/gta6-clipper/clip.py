@@ -132,6 +132,15 @@ def speech_db(words, wav_db):
     return np.median([wav_db[int(w["s"] * 20):int(w["e"] * 20) + 1].max(initial=-99) for w in words]) if words else 0
 
 TAIL = 2.0  # a Short may run at most this long past the end of the sentence holding its loudest second (the payoff)
+def protect_ending(spans, terminal, dur):
+    """Union only an editor-verified terminal source span with the cut list."""
+    if not 0 <= terminal < dur: raise ValueError("ending_start must be inside the selected source window")
+    merged = []
+    for a, b in sorted(spans + [(terminal, dur)]):
+        if merged and a <= merged[-1][1]: merged[-1] = (merged[-1][0], max(b, merged[-1][1]))
+        else: merged.append((a, b))
+    return merged
+
 def tail_trim(spans, words, wav_db, tail=TAIL):
     """Cut the tail after the peak: end the spans on the first stop (sentence end or breath) after the loudest 1 s, if more than `tail` s of kept time follows it."""
     if not spans or not words or len(wav_db) < 20: return spans
@@ -439,6 +448,13 @@ def game_gamma(mean):
     """gentle eq gamma for dark game footage towards a mean of ~92 (None when bright enough; capped at 1.5 so night scenes stay night and noise isn't blown up)."""
     if mean >= GAME_BELOW: return None
     return round(min(max(np.log(max(mean, 8) / 255) / np.log(GAME_TARGET / 255), 1.1), GAME_MAX), 2)
+def game_lift_filter(gamma, stacked=False, picture=None, flip=False):
+    """Brighten gameplay only; leave the shared purple padding unchanged."""
+    eqf = f"eq=gamma={gamma}:contrast=1.04"
+    if not stacked: return eqf + ","
+    gy, gh = reframe.stack_geom(flip)["game"]
+    x, y, w, h = picture or (0, gy, 1080, gh)
+    return f"split[g0][g1];[g0]crop={w}:{h}:{x}:{y},{eqf}[gl];[g1][gl]overlay={x}:{y},"
 def game_luma(v, stacked, n=8, flip=False):
     """Mean luma of the game region over n frames: rows 768+ of the stack, else the whole frame."""
     cap = cv2.VideoCapture(str(v)); N = cap.get(cv2.CAP_PROP_FRAME_COUNT); m = []
@@ -521,7 +537,9 @@ def make_emoji(e, path, px=150):
 def make_wm(spec, path, color="FFFFFF"):
     """Watermark PNG: the user's logo file, or `spec` text ('@mychannel') in Poppins Bold with a dark outline."""
     from PIL import Image, ImageDraw, ImageFont
-    if Path(spec).is_file(): Image.open(spec).convert("RGBA").save(path); return
+    image = Path(spec).expanduser()
+    if not image.is_absolute(): image = FONTS.parent / image
+    if image.is_file(): Image.open(image).convert("RGBA").save(path); return
     f = ImageFont.truetype(str(FONTS / "Poppins-Bold.ttf"), 64); w = int(f.getlength(spec)) + 24
     im = Image.new("RGBA", (w, 100), (0, 0, 0, 0)); ImageDraw.Draw(im).text((12, 12), spec, font=f, fill="#" + color, stroke_width=4, stroke_fill="#000000")
     im.crop(im.getbbox()).save(path)
@@ -600,7 +618,10 @@ def main(src, tjson, start, end, hook, out, keys="", style="", layout="", opts="
     start, end = (_a, _b) if wordless else snap(allw, _a, _b, bool(opt("exact_end", opts, {}, False))); out = Path(out); work = out.parent / ".work" / out.stem  # temp files kept out of sight
     shutil.rmtree(work, ignore_errors=True); work.mkdir(parents=True, exist_ok=True)  # leftovers of a failed run (old download of another moment) must never be reused
     seg, v916, sub = work / "seg.mp4", work / "seg_916.mp4", work / "captions.ass"
-    if truthy(opt("preserve_ending", opts, brand, "")): end = _b
+    ending_start = opt("ending_start", opts, {}, None)
+    if truthy(opt("preserve_ending", opts, brand, "")) or ending_start is not None: end = _b
+    if ending_start is not None and not start <= float(ending_start) < end:
+        raise ValueError("ending_start must be inside the selected source window")
     seek = start
     if src.startswith("http"):  # a link: fetch only this moment (full downloads 403; H.264 because OpenCV decodes AV1 slowly)
         part = work / "src.mp4"
@@ -635,7 +656,7 @@ def main(src, tjson, start, end, hook, out, keys="", style="", layout="", opts="
         cam = (round(x0 * fw), round(y0 * fh), round(x1 * fw), round(y1 * fh))
     else:
         cam = None if layout == "full" else reframe.find_facecam(seg)  # full: never look for a cam (a video-call tile or a grid is not a facecam)
-    info = reframe.render_stack(seg, v916, cam, layout, options={"gameplay_fit": opt("gameplay_fit", opts, brand, "cover"), "gameplay_zoom": opt("gameplay_zoom", opts, brand, 1.0), "facecam_native": truthy(opt("facecam_native", opts, brand, "")), "purple_glass": truthy(opt("purple_glass", opts, brand, ""))}) if cam else None  # None = bubble asked but no real webcam box: normal framing below
+    info = reframe.render_stack(seg, v916, cam, layout, options={"gameplay_fit": opt("gameplay_fit", opts, brand, "cover"), "gameplay_zoom": opt("gameplay_zoom", opts, brand, 1.0), "facecam_native": truthy(opt("facecam_native", opts, brand, "")), "purple_glass": truthy(opt("purple_glass", opts, brand, ""))}) if cam or layout == "stack" else None
     if info:  # streamer reaction: facecam on top, game below, captions on the seam
         info["shots"] = []
         if layout == "bubble": HOOK_Y = reframe.BUB_Y + reframe.BUB + 90  # hook under the bubble, captions at the style's height
@@ -666,14 +687,16 @@ def main(src, tjson, start, end, hook, out, keys="", style="", layout="", opts="
     # tightest cut that still leaves MIN_LEN s (or the whole moment if it is shorter): dead air goes first, a too-thin Short backs off
     cs = [cut(LONG, True), cut(None, True)]; full = cut(None, False, False)
     spans = next((s for s in cs + [cut(None, False)] if tot(s) >= min(MIN_LEN, tot(full) - 0.01)), full); backed = spans is not cs[0]
-    if truthy(opt("preserve_ending", opts, brand, "")) and spans:
+    if ending_start is None and truthy(opt("preserve_ending", opts, brand, "")) and spans:
         spans[-1] = (spans[-1][0], dur)  # preserve the requested reaction tail instead of cutting on silence
     if truthy(opt("preserve_context", opts, brand, "")): spans, backed = [(0.0, dur)], False  # requested full scene: keep pauses and reactions with the dialogue
     if wordless: spans, backed = [(0.0, dur)], False; print(f"WORDLESS: {talk:.0%} talk, kept the whole {dur:.0f} s window", flush=True)  # backed = the tight cut was under MIN_LEN, long gaps stayed in
     if spans is full and tot(cut(None, False)) < tot(full) - 0.01: print(f"THIN: {tot(full) - tot(cut(None, False)):.1f} s of tail after the payoff stays (trimming would go under {MIN_LEN:.0f} s); pick it a sentence later or drop it")
     elif tot(spans) < tot(cut(LONG, True, False)) - 0.01: print(f"  TAIL: cut {tot(cut(LONG, True, False)) - tot(spans):.1f} s after the payoff")
     fl = fillers(words) if truthy(opt('fillers', opts, brand, '1')) else []
+    if ending_start is not None: fl = [i for i in fl if words[i]['e'] <= float(ending_start) - start]
     if fl: spans = cut_out(spans, [(words[i]['s'] - .04, words[i]['e'] + .04) for i in fl]); print('  filler words cut:', [words[i]['w'] for i in fl]); words = [w for i, w in enumerate(words) if i not in fl]
+    if ending_start is not None: spans = protect_ending(spans, float(ending_start) - start, dur)
     n0 = len(words); words = heard(words, spans)  # a word that sits in a cut hole is not heard: no caption for it (it landed on the previous line before)
     if len(words) < n0: print(f'  {n0 - len(words)} caption words dropped (inside cut dead air)')
     def to_cut(w):  # clamp the word into the kept span holding its midpoint, then map to cut time (a word straddling a cut edge must not get e < s)
@@ -741,10 +764,9 @@ def main(src, tjson, start, end, hook, out, keys="", style="", layout="", opts="
         if g: cy = 1156 if flip else 0; lift = f"split[l0][l1];[l0]crop=1080:{ch}:0:{cy},eq=gamma={g}:brightness=0.02[ll];[l1][ll]overlay=0:{cy},"; print(f"  dark cam panel (luma {lm:.0f}): gamma {g} on the cam panel")
     # dark game footage (critics: "the game footage is dark"): gentle gamma lift on the game region only (same switch: lift=0)
     if truthy(opt("lift", opts, brand, "1")):
-        stk = bool(cam and layout != "bubble"); gm = game_luma(v916, stk, flip=flip); gg = game_gamma(gm)
+        stk = bool(info and layout != "bubble"); gm = game_luma(v916, stk, flip=flip); gg = game_gamma(gm)
         if gg:
-            eqf = f"eq=gamma={gg}:contrast=1.04"
-            gy, gh = reframe.stack_geom(flip)["game"]; lift += (f"split[g0][g1];[g0]crop=1080:{gh}:0:{gy},{eqf}[gl];[g1][gl]overlay=0:{gy}," if stk else f"{eqf},")
+            lift += game_lift_filter(gg, stk, info.get("gameplay_content_rect") if stk else None, flip)
             print(f"  dark game footage (luma {gm:.0f}): gamma {gg} on the game panel")
     # overlays per export: watermark, emoji pops, progress bar (inputs after the video: indexes count up)
     extra, wmspec = [], str(opt("watermark", opts, brand, "") or "")
@@ -790,7 +812,7 @@ def main(src, tjson, start, end, hook, out, keys="", style="", layout="", opts="
     out.with_name(out.stem + "_cover.jpg").unlink(missing_ok=True)  # an old cover must not pass for a fresh one
     subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-ss", "1", "-i", str(out.resolve()), "-frames:v", "1", "-q:v", "2", str(out.with_name(out.stem + "_cover.jpg").resolve())])  # fresh cover (frame at 1 s) for a Short re-cut with clip.py alone
     cut = dur - new_dur - lead
-    json.dump(dict(length=round(new_dur, 2), source_start=round(start + lead, 2), seg_start=round(start, 3), source_end=round(end, 2), kept_spans=[[round(a, 2), round(b, 2)] for a, b in spans], dead_air_cut=round(cut, 2),
+    json.dump(dict(length=round(new_dur, 2), source_start=round(start + lead, 2), seg_start=round(start, 3), source_end=round(end, 2), ending_start=ending_start, kept_spans=[[round(a, 2), round(b, 2)] for a, b in spans], dead_air_cut=round(cut, 2),
                    longest_talk_free_gap=round(gap_max, 2), thin=bool(backed and gap_max >= 1.0), punch_ins=[[round(float(a), 2), round(float(b), 2)] for a, b in punch], style=style, layout=layout, lang=lang or "", caption_y=int(cap_y(st, pos)), stacked=STACKED,
                    watermark=wmspec, position=pos, layout_version="fixed-stack-cover-glow-v4", gameplay_fit=info.get("gameplay_fit", layout), gameplay_zoom=info.get("gameplay_zoom", 1.0), facecam_native=info.get("facecam_native", False), purple_glass=info.get("purple_glass", False), fixed_panels=STACKED, facecam_box=facecam_box, hook_persistent=True, aspects=asp, filler_cut=len(fl), black_held=[[round(i / bfps, 2), round((j + 1) / bfps, 2)] for i, j in runs] if frz else []),
               open(out.with_name(out.stem + ".render.json"), "w", encoding="utf-8"), indent=1)  # qc.py reads this

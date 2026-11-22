@@ -6,9 +6,12 @@
   "hook_box": "572382",
   "flip": false,
   "music": "",
-  "watermark": "",
+  "watermark": "assets/channel-watermark.png",
   "gameplay_fit": "padded",
   "gameplay_zoom": 0.85,
   "facecam_native": true,
-  "purple_glass": true
+  "purple_glass": true,
+  "watermark_pos": "br",
+  "watermark_opacity": 0.5,
+  "watermark_size": 0.16
 }

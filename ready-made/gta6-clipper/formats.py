@@ -62,8 +62,10 @@ def overlay(src, vf, out):
 
 def part_mp4(p, span, cache, hook="", layout=None):
     """clip.py on one span (hook only if asked). Cached by everything that shapes the picture, so two formats on the same moment download and render once."""
+    # Endpoint controls belong to each source part, never to the whole callback.
+    endpoint = {k: span[k] for k in ("ending_start", "exact_end", "preserve_ending") if k in span}
     a = [p["url"], p["transcript"], str(span["start"]), str(span["end"]), hook, ",".join(p.get("keywords", [])), p.get("style", ""), layout or span.get("layout") or p.get("layout", ""),
-         json.dumps({k: p[k] for k in ("purple_glass", "gameplay_fit", "gameplay_zoom", "facecam_native", "facecam_box", "preserve_context", "preserve_ending", "position", "watermark", "watermark_pos", "watermark_opacity", "watermark_size", "emoji", "lang", "flash", "lift", "fillers", "blackfix", "denoise", "squeeze") if k in p} | {"progress": 0, "endcard": "0", "aspects": []})]  # explicit off beats env/brand (clip.py opt: pick > env > brand): finish() adds progress/endcard/aspects once to the joined Short
+         json.dumps({k: p[k] for k in ("purple_glass", "gameplay_fit", "gameplay_zoom", "facecam_native", "facecam_box", "preserve_context", "preserve_ending", "position", "watermark", "watermark_pos", "watermark_opacity", "watermark_size", "emoji", "lang", "flash", "lift", "fillers", "blackfix", "denoise", "squeeze") if k in p} | endpoint | {"progress": 0, "endcard": "0", "aspects": []})]  # explicit off beats env/brand (clip.py opt: pick > env > brand): finish() adds progress/endcard/aspects once to the joined Short
     Path(cache).mkdir(parents=True, exist_ok=True); renderer_tag = hashlib.sha256(b"".join(q.read_bytes() for q in (HERE / "clip.py", HERE / "reframe.py") if q.is_file())).hexdigest(); key = hashlib.md5((renderer_tag + "|" + "|".join(a)).encode()).hexdigest()[:12]; f = Path(cache) / (key + ".mp4")
     _sweep(Path(cache))
     with _LOCKS.setdefault(key, threading.Lock()):  # workers are threads in one process: the second one waits here, then finds the finished file

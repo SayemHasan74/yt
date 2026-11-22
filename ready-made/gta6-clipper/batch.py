@@ -17,7 +17,7 @@ MAX_SPAN, MAX_TOTAL = 60, 64  # bench2 (18 Nov): viral Twitch clips run 6-61 s, 
 OPT_KEYS = ("purple_glass", "gameplay_fit", "gameplay_zoom", "facecam_native", "facecam_box", "preserve_context", "preserve_ending", "exact_end", "streamer_logo", "credit", "position", "watermark", "watermark_pos", "watermark_opacity", "watermark_size", "progress", "endcard", "aspects", "emoji", "lang", "flash", "lift", "fillers", "blackfix", "denoise", "squeeze", "flip", "theme", "cap_size", "hook_text", "hook_box", "progress_color", "watermark_color", "colors")
 def opts_json(p, skip=()):
     """Pick fields clip.py reads as its 10th argument (brand.json and CLIPPER_* env fill the rest)."""
-    return json.dumps({k: p[k] for k in OPT_KEYS if k in p and k not in skip})
+    return json.dumps({k: p[k] for k in OPT_KEYS + ("ending_start",) if k in p and k not in skip})
 
 def bed_cmd(mp4, p, brand=None):
     """meme.py bed command for a pick with "music": mood (hype|chill|tense|funny) or a file name; brand.json / CLIPPER_MUSIC is the default. Writes <stem>_b.mp4; None when no music."""
